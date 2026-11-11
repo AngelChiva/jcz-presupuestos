@@ -359,7 +359,6 @@ function verEditor(p) {
           if (f === "concepto") {
             const k = cache.conceptos.find(k => norm(k.nombre) === norm(inp.value));
             if (k) {
-              e.lineas[i].descripcion = k.descripcion || ""; div.querySelector('[data-f="descripcion"]').value = k.descripcion || "";
               if (k.precio !== null && k.precio !== "" && k.precio !== undefined) { e.lineas[i].precio = fmtNum(k.precio); div.querySelector('[data-f="precio"]').value = fmtNum(k.precio); }
             }
           }
@@ -397,10 +396,10 @@ async function guardar(silencioso) {
   try {
     // 1) Conceptos nuevos: preguntar si se guardan
     const nuevos = [];
-    for (const l of e.lineas) { const nom = l.concepto.trim(); if (nom && !cache.conceptos.some(k => norm(k.nombre) === norm(nom)) && !nuevos.some(n => norm(n.nombre) === norm(nom))) nuevos.push({ nombre: nom, descripcion: l.descripcion.trim(), precio: l.precio }); }
+    for (const l of e.lineas) { const nom = l.concepto.trim(); if (nom && !cache.conceptos.some(k => norm(k.nombre) === norm(nom)) && !nuevos.some(n => norm(n.nombre) === norm(nom))) nuevos.push({ nombre: nom, precio: l.precio }); }
     if (nuevos.length) {
       const elegidos = await preguntarConceptos(nuevos);
-      for (const k of elegidos) { const d = { nombre: k.nombre, descripcion: k.descripcion, precio: k.conPrecio && String(k.precio).trim() !== "" ? num(k.precio) : null }; const id = await DB.add("conceptos", d); cache.conceptos.push({ id, ...d }); }
+      for (const k of elegidos) { const d = { nombre: k.nombre, precio: k.conPrecio && String(k.precio).trim() !== "" ? num(k.precio) : null }; const id = await DB.add("conceptos", d); cache.conceptos.push({ id, ...d }); }
       cache.conceptos.sort((a, b) => norm(a.nombre).localeCompare(norm(b.nombre)));
     }
     // 2) Cliente: crear o actualizar
@@ -432,10 +431,9 @@ async function guardar(silencioso) {
 function preguntarConceptos(nuevos) {
   return new Promise(res => {
     const m = document.createElement("div"); m.className = "modal";
-    m.innerHTML = `<div class="caja"><h2>¿Guardar conceptos nuevos?</h2><p class="peque">Así la próxima vez solo tendrás que elegirlos. Puedes guardarlos con o sin precio.</p>
+    m.innerHTML = `<div class="caja"><h2>¿Guardar conceptos nuevos?</h2><p class="peque">Se guarda solo el nombre del concepto (la descripción no). Así la próxima vez solo tendrás que elegirlo.</p>
       ${nuevos.map((k, i) => `<div class="campo"><label class="chk" style="color:var(--texto);font-weight:600"><input type="checkbox" data-g="${i}" checked> ${esc(k.nombre)}</label>
-      ${k.descripcion ? `<div class="peque">${esc(k.descripcion)}</div>` : ""}
-      <label class="chk"><input type="checkbox" data-p="${i}" ${String(k.precio).trim() ? "checked" : ""}> Guardar también el precio${String(k.precio).trim() ? " (" + eur(num(k.precio)) + ")" : ""}</label></div>`).join("")}
+      <label class="chk"><input type="checkbox" data-p="${i}"> Guardar también el precio${String(k.precio).trim() ? " (" + eur(num(k.precio)) + ")" : ""}</label></div>`).join("")}
       <div class="acciones" style="margin-top:12px"><button class="btn" id="mOk">Guardar marcados</button><button class="btn sec" id="mNo">No guardar</button></div></div>`;
     document.body.appendChild(m);
     m.querySelector("#mOk").onclick = () => { const r = nuevos.map((k, i) => ({ ...k, conPrecio: m.querySelector(`[data-p="${i}"]`).checked })).filter((k, i) => m.querySelector(`[data-g="${i}"]`).checked); m.remove(); res(r); };
@@ -482,12 +480,13 @@ async function crearPdf(p) {
   const c = p.cliente || {};
   const lc = [c.direccion, [c.telefono ? "Tel. " + telBonito(c.telefono) : "", c.email].filter(Boolean).join("  ·  "), c.nif ? "NIF/DNI: " + c.nif : ""].filter(Boolean);
   const lineasC = lc.flatMap(s => doc.splitTextToSize(s, W - 2 * M - 10));
-  const hC = 14 + lineasC.length * 4.3;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(11); const nomC = doc.splitTextToSize(c.nombre || "", W - 2 * M - 10); doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+  const hC = 14 + (nomC.length - 1) * 4.8 + lineasC.length * 4.3;
   doc.setFillColor(...CLARO); doc.setDrawColor(...CLARO); doc.roundedRect(M, y, W - 2 * M, hC, 2, 2, "F");
   doc.setFillColor(...AZUL2); doc.rect(M, y, 1.4, hC, "F");
   doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...AZUL2); doc.text("CLIENTE", M + 5, y + 5);
-  doc.setFontSize(11); doc.setTextColor(...TEXTO); doc.text(c.nombre || "", M + 5, y + 10.5);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); let yy = y + 15;
+  doc.setFontSize(11); doc.setTextColor(...TEXTO); nomC.forEach((ln, i) => doc.text(ln, M + 5, y + 10.5 + i * 4.8));
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); let yy = y + 15 + (nomC.length - 1) * 4.8;
   for (const ln of lineasC) { doc.text(ln, M + 5, yy); yy += 4.3; }
   y += hC + 6;
 
@@ -645,19 +644,19 @@ function fichaCliente(c) {
 /* ======================== Conceptos ======================== */
 function verConceptos() {
   layout(`<h2>Conceptos guardados</h2>
-    <p class="peque" style="margin-top:-6px">Trabajos que repites. Al elegirlos en un presupuesto se rellenan solos, y puedes cambiar el texto o el precio de ese presupuesto sin tocar lo guardado aquí.</p>
+    <p class="peque" style="margin-top:-6px">Nombres de trabajos que repites. Al elegirlos en un presupuesto se pone el nombre (y el precio, si lo guardaste). La descripción se escribe en cada presupuesto.</p>
     <div class="acciones" style="margin-bottom:10px"><button class="btn" id="nuevoK">＋ Nuevo concepto</button><button class="btn sec peq" id="expK">Exportar Excel</button><label class="btn sec peq" style="margin:0">Importar Excel<input type="file" id="impK" accept=".xlsx,.xls,.csv" class="hidden"></label></div>
     <input type="search" id="buscarK" placeholder="Buscar concepto" style="margin-bottom:10px">
     <div class="card lista" style="padding:0" id="listaK"></div>`);
   const pint = () => {
     const q = norm($("#buscarK").value);
-    const r = cache.conceptos.filter(k => !q || norm(k.nombre).includes(q) || norm(k.descripcion).includes(q));
-    $("#listaK").innerHTML = r.length ? r.map(k => `<div class="it" data-id="${k.id}"><div style="min-width:0"><div class="cli">${esc(k.nombre)}</div><div class="sub">${esc(k.descripcion || "")}</div></div><div class="tot">${k.precio !== null && k.precio !== undefined && k.precio !== "" ? eur(k.precio) : '<span class="sub">sin precio</span>'}</div></div>`).join("") : `<div class="vacio">No hay conceptos${q ? " que coincidan" : " todavía"}.</div>`;
+    const r = cache.conceptos.filter(k => !q || norm(k.nombre).includes(q));
+    $("#listaK").innerHTML = r.length ? r.map(k => `<div class="it" data-id="${k.id}"><div style="min-width:0"><div class="cli">${esc(k.nombre)}</div></div><div class="tot">${k.precio !== null && k.precio !== undefined && k.precio !== "" ? eur(k.precio) : '<span class="sub">sin precio</span>'}</div></div>`).join("") : `<div class="vacio">No hay conceptos${q ? " que coincidan" : " todavía"}.</div>`;
     document.querySelectorAll("#listaK .it").forEach(el => el.onclick = () => fichaConcepto(cache.conceptos.find(k => k.id === el.dataset.id)));
   };
   $("#buscarK").oninput = pint; pint();
   $("#nuevoK").onclick = () => fichaConcepto(null);
-  $("#expK").onclick = () => exportar("Conceptos", cache.conceptos.map(k => ({ Concepto: k.nombre, Descripción: k.descripcion, Precio: k.precio ?? "" })));
+  $("#expK").onclick = () => exportar("Conceptos", cache.conceptos.map(k => ({ Concepto: k.nombre, Precio: k.precio ?? "" })));
   $("#impK").onchange = ev => importar(ev.target.files[0], "conceptos");
 }
 function fichaConcepto(k) {
@@ -665,12 +664,11 @@ function fichaConcepto(k) {
   const m = document.createElement("div"); m.className = "modal";
   m.innerHTML = `<div class="caja"><h2>${k ? "Editar concepto" : "Nuevo concepto"}</h2>
     <label>Concepto</label><input type="text" id="kN" value="${esc(d.nombre)}">
-    <label>Descripción</label><textarea id="kD">${esc(d.descripcion)}</textarea>
     <label>Precio € (déjalo vacío para guardarlo sin precio)</label><input type="text" inputmode="decimal" id="kP" value="${d.precio !== null && d.precio !== undefined && d.precio !== "" ? esc(fmtNum(d.precio)) : ""}">
     <div class="acciones" style="margin-top:14px"><button class="btn" id="kG">Guardar</button>${k ? `<button class="btn peligro" id="kB">Borrar</button>` : ""}<button class="btn sec" id="kC">Cancelar</button></div></div>`;
   document.body.appendChild(m);
   $("#kC", m).onclick = () => m.remove();
-  $("#kG", m).onclick = async () => { const v = { nombre: $("#kN", m).value.trim(), descripcion: $("#kD", m).value.trim(), precio: $("#kP", m).value.trim() === "" ? null : num($("#kP", m).value) }; if (!v.nombre) return toast("Falta el concepto"); try { if (k) { await DB.set("conceptos", k.id, v); Object.assign(k, v); } else { const id = await DB.add("conceptos", v); cache.conceptos.push({ id, ...v }); } cache.conceptos.sort((a, b) => norm(a.nombre).localeCompare(norm(b.nombre))); m.remove(); toast("Concepto guardado"); verConceptos(); } catch (e) { toast("Error: " + (e.code || e.message)); } };
+  $("#kG", m).onclick = async () => { const v = { nombre: $("#kN", m).value.trim(), descripcion: "", precio: $("#kP", m).value.trim() === "" ? null : num($("#kP", m).value) }; if (!v.nombre) return toast("Falta el concepto"); try { if (k) { await DB.set("conceptos", k.id, v); Object.assign(k, v); } else { const id = await DB.add("conceptos", v); cache.conceptos.push({ id, ...v }); } cache.conceptos.sort((a, b) => norm(a.nombre).localeCompare(norm(b.nombre))); m.remove(); toast("Concepto guardado"); verConceptos(); } catch (e) { toast("Error: " + (e.code || e.message)); } };
   if (k) $("#kB", m).onclick = async () => { if (!confirm(`¿Borrar «${k.nombre}»?`)) return; await DB.del("conceptos", k.id); cache.conceptos = cache.conceptos.filter(x => x.id !== k.id); m.remove(); toast("Concepto borrado"); verConceptos(); };
 }
 
@@ -697,7 +695,7 @@ async function importar(file, tipo) {
         if (ex) { await DB.set("clientes", ex.id, v); Object.assign(ex, v); act++; } else { const id = await DB.add("clientes", v); cache.clientes.push({ id, ...v }); nuevos++; }
       } else {
         const pr = col(f, "precio", "precio €", "importe");
-        const v = { nombre: col(f, "concepto", "nombre"), descripcion: col(f, "descripcion"), precio: pr === "" ? null : num(pr) };
+        const v = { nombre: col(f, "concepto", "nombre"), descripcion: "", precio: pr === "" ? null : num(pr) };
         if (!v.nombre) continue;
         const ex = cache.conceptos.find(k => norm(k.nombre) === norm(v.nombre));
         if (ex) { await DB.set("conceptos", ex.id, v); Object.assign(ex, v); act++; } else { const id = await DB.add("conceptos", v); cache.conceptos.push({ id, ...v }); nuevos++; }
